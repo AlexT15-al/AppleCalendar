@@ -2,7 +2,6 @@ import 'package:flutter/cupertino.dart';
 
 import '../../../app/theme/cal_colors.dart';
 import '../../../app/theme/cal_metrics.dart';
-import '../../../app/theme/cal_motion.dart';
 import '../../../data/event_store.dart';
 import '../../../domain/calendar_event.dart';
 import '../month_density.dart';
@@ -10,6 +9,11 @@ import 'month_event_chip.dart';
 
 /// One day of the month grid: its number, and what is on it at the current
 /// density.
+///
+/// Deliberately lean, because a scrolling month builds ~35 of these on the
+/// frame it enters the screen: no gesture detector (the week row owns one for
+/// all seven days), no animation of its own (the density cross-fade is derived
+/// from [rowHeight]), and a plain Column instead of a Stack of positions.
 class MonthDayCell extends StatelessWidget {
   const MonthDayCell({
     super.key,
@@ -19,7 +23,6 @@ class MonthDayCell extends StatelessWidget {
     required this.rowHeight,
     required this.isToday,
     required this.isWeekend,
-    this.onTap,
   });
 
   final DateTime day;
@@ -28,60 +31,48 @@ class MonthDayCell extends StatelessWidget {
   final double rowHeight;
   final bool isToday;
   final bool isWeekend;
-  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final density = MonthDensity.forRowHeight(rowHeight);
+    final opacity = MonthDensity.contentOpacity(rowHeight);
 
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: Stack(
-        clipBehavior: Clip.hardEdge,
+    Widget content = switch (density) {
+      MonthDensity.compact => _CompactIndicator(events: events),
+      MonthDensity.stacked => _StackedBars(events: events, store: store),
+      MonthDensity.details => _DetailsList(
+        events: events,
+        store: store,
+        height: rowHeight - CalMetrics.dayContentTop,
+      ),
+    };
+    // Only mid-resize: at rest the opacity is exactly 1 and no layer is made.
+    if (opacity < 1) content = Opacity(opacity: opacity, child: content);
+
+    return ClipRect(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Positioned(
-            top: CalMetrics.dayNumberTop,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: _DayNumber(
-                day: day.day,
-                isToday: isToday,
-                isWeekend: isWeekend,
-              ),
+          const SizedBox(height: CalMetrics.dayNumberTop),
+          Center(
+            child: _DayNumber(
+              day: day.day,
+              isToday: isToday,
+              isWeekend: isWeekend,
             ),
           ),
-          Positioned(
-            top: CalMetrics.dayContentTop,
-            left: CalMetrics.chipHorizontalInset,
-            right: CalMetrics.chipHorizontalInset,
-            bottom: 0,
-            // Cross-fades between densities instead of popping, so changing it
-            // from the view menu reads as the rows growing into a new layout.
-            child: AnimatedSwitcher(
-              duration: CalMotion.of(context, CalMotion.densitySwapDuration),
-              switchInCurve: CalMotion.standardCurve,
-              switchOutCurve: CalMotion.standardCurve,
-              layoutBuilder: (current, previous) => Stack(
-                alignment: Alignment.topCenter,
-                children: [...previous, ?current],
+          const SizedBox(
+            height:
+                CalMetrics.dayContentTop -
+                CalMetrics.dayNumberTop -
+                CalMetrics.dayCircleSize,
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: CalMetrics.chipHorizontalInset,
               ),
-              child: KeyedSubtree(
-                key: ValueKey(density),
-                child: switch (density) {
-                  MonthDensity.compact => _CompactIndicator(events: events),
-                  MonthDensity.stacked => _StackedBars(
-                    events: events,
-                    store: store,
-                  ),
-                  MonthDensity.details => _DetailsList(
-                    events: events,
-                    store: store,
-                    height: rowHeight - CalMetrics.dayContentTop,
-                  ),
-                },
-              ),
+              child: content,
             ),
           ),
         ],

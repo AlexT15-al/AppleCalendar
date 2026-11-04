@@ -31,7 +31,15 @@ never guess a parameter.
   `CalMetrics`, motion in `CalMotion`, glass in `CalGlass`.
 - **Performance**: identity-stable glass settings, `GlassBackdropGroup` around
   side-by-side glass, `RepaintBoundary` around animated chrome, no new packages
-  without a reason.
+  without a reason. Learned on Month view:
+  - Scrolling grids are lists of *small rows with known extents*
+    (`SliverVariedExtentList`), never one item per month — a whole month built
+    on one frame is a visible hitch.
+  - No per-cell animations (`AnimatedSwitcher` makes a controller per cell);
+    derive transitions from the animated value instead.
+  - Scroll edges use `GlassScrollEdgeStyle.soft`; `blur` re-runs a two-pass
+    gaussian over live content every frame.
+  - Rebuild bars only when what they show changes (the year, not the month).
 
 ## Layout of the code
 

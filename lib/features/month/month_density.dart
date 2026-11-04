@@ -29,4 +29,24 @@ enum MonthDensity {
     if (height < (stacked.rowHeight + details.rowHeight) / 2) return stacked;
     return details;
   }
+
+  /// How opaque a row of [height] draws its content.
+  ///
+  /// 1 at rest on any stop, dipping to 0 at the switch-over points between two
+  /// stops. That is the whole density cross-fade: as an animated resize carries
+  /// a row past a switch-over, the old content fades out and the new fades in,
+  /// without any cell owning an animation of its own.
+  static double contentOpacity(double height) {
+    const fadeZone = 10.0;
+    final boundaries = [
+      (compact.rowHeight + stacked.rowHeight) / 2,
+      (stacked.rowHeight + details.rowHeight) / 2,
+    ];
+    var nearest = double.infinity;
+    for (final b in boundaries) {
+      final d = (height - b).abs();
+      if (d < nearest) nearest = d;
+    }
+    return (nearest / fadeZone).clamp(0.0, 1.0);
+  }
 }

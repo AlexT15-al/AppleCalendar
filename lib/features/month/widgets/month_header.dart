@@ -47,8 +47,8 @@ class MonthHeader extends StatelessWidget {
             // the weekday row: in the reference the grid is a blur behind the
             // title but never shows through the letters.
             colors: [
-              page.withValues(alpha: 0.6),
-              page.withValues(alpha: 0.92),
+              page.withValues(alpha: 0.8),
+              page.withValues(alpha: 0.95),
               page,
             ],
             stops: const [0, 0.6, 0.8],

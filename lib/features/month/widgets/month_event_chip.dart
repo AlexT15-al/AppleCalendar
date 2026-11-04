@@ -57,7 +57,7 @@ class MonthEventChip extends StatelessWidget {
           if (lead != null) ...[lead, const SizedBox(width: 2)],
           Expanded(
             child: Text(
-              event.title,
+              _clipped(event.title),
               maxLines: 1,
               softWrap: false,
               overflow: TextOverflow.clip,
@@ -115,4 +115,17 @@ class _BadgeGlyph extends StatelessWidget {
       child: Icon(glyph, size: 7, color: CalColors.onAccent),
     );
   }
+}
+
+/// The title cut down to what a chip can ever show.
+///
+/// A day cell is ~52pt wide, room for about ten characters at 11pt, and the
+/// text is clipped anyway — but shaping runs over the whole string first.
+/// Cutting it here (by grapheme, so an emoji is never split) keeps every chip
+/// a short paragraph however long the event's title is.
+String _clipped(String title) {
+  final chars = title.characters;
+  return chars.length <= CalMetrics.chipMaxCharacters
+      ? title
+      : chars.take(CalMetrics.chipMaxCharacters).toString();
 }

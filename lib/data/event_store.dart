@@ -20,9 +20,9 @@ class EventStore extends ChangeNotifier {
   final Map<String, CalendarSource> _calendars;
   final List<CalendarEvent> _events;
 
-  /// Day key → that day's entries, already sorted. Built lazily, one day at a
-  /// time, and thrown away whenever anything changes.
-  final Map<int, List<CalendarEvent>> _byDay = {};
+  /// Day key → that day's entries, already sorted. Built on first use and
+  /// thrown away whenever anything changes.
+  Map<int, List<CalendarEvent>>? _index;
 
   /// Calendars switched off in the Calendars sheet.
   final Set<String> _hidden = {};
@@ -59,35 +59,44 @@ class EventStore extends ChangeNotifier {
   }
 
   void _invalidate() {
-    _byDay.clear();
+    _index = null;
     notifyListeners();
   }
 
   /// Everything visible on [day], in the order Calendar lists it: all-day
   /// entries first, then by start time, ties broken by title so the order is
   /// stable across rebuilds.
-  List<CalendarEvent> eventsOn(DateTime day) {
-    final key = CalendarDate.dayKey(day);
-    return _byDay[key] ??= _collect(CalendarDate.dateOnly(day));
+  List<CalendarEvent> eventsOn(DateTime day) =>
+      (_index ??= _buildIndex())[CalendarDate.dayKey(day)] ?? const [];
+
+  /// One pass over every event, dropping each into the days it covers.
+  ///
+  /// Built once per change rather than per day asked for: a month grid asks
+  /// for ~35 days at a time while scrolling, and scanning the whole event list
+  /// for each of them is the kind of cost that lands on exactly the frames
+  /// where a new month scrolls into view.
+  Map<int, List<CalendarEvent>> _buildIndex() {
+    final index = <int, List<CalendarEvent>>{};
+    for (final e in _events) {
+      if (_hidden.contains(e.calendarId)) continue;
+      var day = CalendarDate.dateOnly(e.start);
+      // A zero-length entry (a reminder) belongs to its day. Anything else
+      // covers every day it overlaps — and a timed event ending exactly at
+      // midnight does not spill into the next one.
+      do {
+        (index[CalendarDate.dayKey(day)] ??= []).add(e);
+        day = CalendarDate.addDays(day, 1);
+      } while (day.isBefore(e.end));
+    }
+    for (final list in index.values) {
+      list.sort(_byCalendarOrder);
+    }
+    return index;
   }
 
-  List<CalendarEvent> _collect(DateTime dayStart) {
-    final dayEnd = CalendarDate.addDays(dayStart, 1);
-    final result = [
-      for (final e in _events)
-        if (!_hidden.contains(e.calendarId) &&
-            e.start.isBefore(dayEnd) &&
-            // A timed event ending exactly at midnight does not spill into the
-            // next day; a zero-length one (a reminder) still belongs to its day.
-            (e.end.isAfter(dayStart) ||
-                (e.start == e.end && !e.start.isBefore(dayStart))))
-          e,
-    ];
-    result.sort((a, b) {
-      if (a.isAllDay != b.isAllDay) return a.isAllDay ? -1 : 1;
-      final byTime = a.start.compareTo(b.start);
-      return byTime != 0 ? byTime : a.title.compareTo(b.title);
-    });
-    return List.unmodifiable(result);
+  static int _byCalendarOrder(CalendarEvent a, CalendarEvent b) {
+    if (a.isAllDay != b.isAllDay) return a.isAllDay ? -1 : 1;
+    final byTime = a.start.compareTo(b.start);
+    return byTime != 0 ? byTime : a.title.compareTo(b.title);
   }
 }

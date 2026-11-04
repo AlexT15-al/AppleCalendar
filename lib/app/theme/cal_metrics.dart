@@ -105,6 +105,10 @@ abstract final class CalMetrics {
   static const double chipRadius = 5.0;
   static const double chipHorizontalInset = 2.0;
   static const double chipTextSize = 11.0;
+
+  /// More than a chip can show at its widest (a landscape cell), so cutting a
+  /// title to this never changes what is drawn.
+  static const int chipMaxCharacters = 18;
   static const double chipGlyphSize = 11.0;
 
   /// The "+7" under a day whose events do not all fit.

@@ -17,7 +17,7 @@ import '../../shared/widgets/transparent_system_bars.dart';
 import 'month_density.dart';
 import 'month_layout.dart';
 import 'widgets/month_header.dart';
-import 'widgets/month_section.dart';
+import 'widgets/month_rows.dart';
 
 /// Month view — the screen Calendar opens on.
 ///
@@ -64,8 +64,15 @@ class _MonthPageState extends State<MonthPage>
 
   late MonthLayout _layout = _buildLayout();
 
-  /// The month named in the header and the back button.
+  /// The month named in the sticky header.
   late final ValueNotifier<int> _visibleMonth = ValueNotifier(_anchor);
+
+  /// The year named in the back capsule. Separate from [_visibleMonth] so the
+  /// navigation bar — whose pinned items re-register with the shell whenever
+  /// it rebuilds — rebuilds once a year of scrolling, not once a month.
+  late final ValueNotifier<int> _visibleYear = ValueNotifier(
+    CalendarDate.monthStart(_anchor).year,
+  );
 
   int _firstWeekday = DateTime.sunday;
 
@@ -105,6 +112,7 @@ class _MonthPageState extends State<MonthPage>
     _scroll.dispose();
     _resize.dispose();
     _visibleMonth.dispose();
+    _visibleYear.dispose();
     super.dispose();
   }
 
@@ -127,7 +135,9 @@ class _MonthPageState extends State<MonthPage>
 
   void _onScroll() {
     final month = _layout.monthAt(_probe);
-    if (month != _visibleMonth.value) _visibleMonth.value = month;
+    if (month == _visibleMonth.value) return;
+    _visibleMonth.value = month;
+    _visibleYear.value = CalendarDate.monthStart(month).year;
   }
 
   // ── Today ──────────────────────────────────────────────────────────────────
@@ -215,10 +225,36 @@ class _MonthPageState extends State<MonthPage>
         MediaQuery.paddingOf(context).top + CalMetrics.toolbarHeight;
     final page = CalColors.background.resolveFrom(context);
 
+    // The grid is built once here and handed to the builder below as its
+    // child, so a year change in the bar never rebuilds 35 cells a month.
+    final grid = ListenableBuilder(
+      listenable: Listenable.merge([store, todayClock]),
+      builder: (context, _) => _grid(store, todayClock.value),
+    );
+
+    final header = Positioned(
+      top: 0,
+      left: 0,
+      right: 0,
+      // Its own layer: the title cross-fade repaints the header and nothing
+      // under it.
+      child: RepaintBoundary(
+        child: ListenableBuilder(
+          listenable: Listenable.merge([_visibleMonth, todayClock]),
+          builder: (context, _) => MonthHeader(
+            month: _visibleMonth.value,
+            today: todayClock.value,
+            firstWeekday: _firstWeekday,
+            topInset: topInset,
+          ),
+        ),
+      ),
+    );
+
     return TransparentSystemBars(
       child: ValueListenableBuilder<int>(
-        valueListenable: _visibleMonth,
-        builder: (context, visibleMonth, grid) => GlassScaffold(
+        valueListenable: _visibleYear,
+        builder: (context, year, grid) => GlassScaffold(
           background: ColoredBox(color: page),
           backgroundColor: page,
           // A flat page colour: sampling it into a texture for the glass to
@@ -226,57 +262,57 @@ class _MonthPageState extends State<MonthPage>
           enableBackgroundSampling: false,
           statusBarStyle: GlassStatusBarStyle.none,
           resizeToAvoidBottomInset: false,
-          // The grid frosts as it passes under the bar *and* the sticky month
-          // header, so the fade has to reach the header's bottom edge.
-          edgeStyle: GlassScrollEdgeStyle.blur,
+          // `soft`, not `blur`. The progressive blur is a two-pass gaussian
+          // over the live grid, re-run on every frame of a scroll across
+          // ~190pt at the top and ~100pt at the bottom — on top of the premium
+          // glass already reading the backdrop there. The soft fade is iOS's
+          // default edge style and costs a gradient.
+          edgeStyle: GlassScrollEdgeStyle.soft,
+          // The fade has to reach the bottom of the sticky month header, not
+          // just the bar.
           appBarHeight: CalMetrics.toolbarHeight + CalMetrics.monthHeaderExtent,
           topEdgeFadeExtent: 8,
           topEdgeFade: true,
           // Under the floating toolbar, which the scaffold does not know about.
           bottomEdgeFade: true,
           bottomEdgeFadeExtent: CalMetrics.minGlassControl + 24,
-          appBar: _appBar(context, visibleMonth),
-          bodyOverlays: [
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              child: ValueListenableBuilder<DateTime>(
-                valueListenable: todayClock,
-                builder: (context, today, _) => MonthHeader(
-                  month: visibleMonth,
-                  today: today,
-                  firstWeekday: _firstWeekday,
-                  topInset: topInset,
-                ),
-              ),
-            ),
-          ],
+          appBar: _appBar(context, year),
+          bodyOverlays: [header],
           body: grid!,
         ),
-        // The grid is built outside the title's builder, so scrolling into a
-        // new month rebuilds the header and the back button — not 40 cells.
-        child: ListenableBuilder(
-          listenable: Listenable.merge([store, todayClock]),
-          builder: (context, _) => _grid(store, todayClock.value),
-        ),
+        child: grid,
       ),
     );
   }
 
   Widget _grid(EventStore store, DateTime today) {
-    Widget section(int month) => MonthSection(
-      key: ValueKey(month),
-      month: month,
-      rowHeight: _rowHeight,
-      firstWeekday: _firstWeekday,
-      today: today,
-      store: store,
-      // Day view lands next; until then a tap is a no-op rather than a
-      // half-built screen.
-      onDayTap: null,
-    );
+    final layout = _layout;
 
+    Widget row(MonthRow row) {
+      final week = row.week;
+      if (week == null) {
+        return MonthLabelRow(
+          month: row.month,
+          firstWeekday: _firstWeekday,
+          today: today,
+        );
+      }
+      return MonthWeekRow(
+        month: row.month,
+        week: week,
+        rowHeight: _rowHeight,
+        firstWeekday: _firstWeekday,
+        today: today,
+        store: store,
+        // Day view lands next; until then a tap is a no-op rather than a
+        // half-built screen.
+      );
+    }
+
+    // Varied-extent lists rather than plain ones: every row's height is known
+    // up front, so the list positions rows by arithmetic instead of laying out
+    // everything between here and a jump target, and Today can land far away
+    // without building the months in between.
     return CustomScrollView(
       controller: _scroll,
       center: _centerKey,
@@ -284,22 +320,23 @@ class _MonthPageState extends State<MonthPage>
         parent: BouncingScrollPhysics(),
       ),
       slivers: [
-        // Months before the anchor. A sliver before `center` grows upward, so
-        // index 0 is the month directly above the anchor.
-        SliverList.builder(
-          itemBuilder: (context, i) => section(_anchor - 1 - i),
+        // Before the anchor month. A sliver before `center` grows upward, so
+        // its index 0 is the last week of the previous month.
+        SliverVariedExtentList.builder(
+          itemExtentBuilder: (i, _) => layout.extentOf(layout.backwardRow(i)),
+          itemBuilder: (context, i) => row(layout.backwardRow(i)),
         ),
-        SliverList.builder(
+        SliverVariedExtentList.builder(
           key: _centerKey,
-          itemBuilder: (context, i) => section(_anchor + i),
+          itemExtentBuilder: (i, _) => layout.extentOf(layout.forwardRow(i)),
+          itemBuilder: (context, i) => row(layout.forwardRow(i)),
         ),
       ],
     );
   }
 
-  GlassAppBar _appBar(BuildContext context, int visibleMonth) {
+  GlassAppBar _appBar(BuildContext context, int year) {
     final ink = CalColors.labelOf(context);
-    final year = CalendarDate.monthStart(visibleMonth).year;
 
     return GlassAppBar.pinned(
       toolbarHeight: CalMetrics.toolbarHeight,
