@@ -46,3 +46,8 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Resolved per machine: the owner and the cloud session run different Flutter
+# versions, whose SDK-pinned packages differ, so a committed lock would churn
+# on every pub get and block the next git pull.
+pubspec.lock
