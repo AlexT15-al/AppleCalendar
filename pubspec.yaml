@@ -1,10 +1,10 @@
 name: apple_calendar
-description: "A new Flutter project."
+description: "A 1:1 clone of Apple Calendar on iPhone (iOS 26/27), built with liquid_glass_widgets."
 publish_to: 'none'
 version: 0.1.0+1
 
 environment:
-  sdk: ^3.13.7
+  sdk: ^3.8.0
 
 dependencies:
   cupertino_icons: ^2.0.0
